@@ -5,6 +5,18 @@
 
 #include "aot_reloc.h"
 
+/* Preserve executable addresses in PC-relative arithmetic while writing through
+ * the writable alias on platforms with split instruction/data mappings. */
+static void *
+relocation_write_address(void *address)
+{
+#if WASM_MEM_DUAL_BUS_MIRROR != 0
+    return os_get_dbus_mirror(address);
+#else
+    return address;
+#endif
+}
+
 #define R_AARCH64_MOVW_UABS_G0 263
 #define R_AARCH64_MOVW_UABS_G0_NC 264
 #define R_AARCH64_MOVW_UABS_G1 265
@@ -90,7 +102,7 @@ init_plt_table(uint8 *plt)
 {
     uint32 i, num = sizeof(target_sym_map) / sizeof(SymbolMap);
     for (i = 0; i < num; i++) {
-        uint32 *p = (uint32 *)plt;
+        uint32 *p = (uint32 *)relocation_write_address(plt);
         *p++ = 0xf81f0ffe; /* str  x30, [sp, #-16]! */
         *p++ = 0x100000be; /* adr  x30, #20; symbol addr is PC + 5 instructions
                               below */
@@ -194,7 +206,7 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             }
 
             /* write the imm26 back to instruction */
-            *(int32 *)P = (insn & 0xFC000000) | ((int32)((X >> 2) & 0x3FFFFFF));
+            *(int32 *)relocation_write_address(P) = (insn & 0xFC000000) | ((int32)((X >> 2) & 0x3FFFFFF));
             break;
         }
 
@@ -245,21 +257,20 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             switch (reloc_type) {
                 case R_AARCH64_MOVW_UABS_G0:
                 case R_AARCH64_MOVW_UABS_G0_NC:
-                    *(int32 *)P =
-                        (insn & 0xFFE0001F) | ((int32)((X & 0xFFFF) << 5));
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFE0001F) | ((int32)((X & 0xFFFF) << 5));
                     break;
                 case R_AARCH64_MOVW_UABS_G1:
                 case R_AARCH64_MOVW_UABS_G1_NC:
-                    *(int32 *)P = (insn & 0xFFE0001F)
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFE0001F)
                                   | ((int32)(((X >> 16) & 0xFFFF) << 5));
                     break;
                 case R_AARCH64_MOVW_UABS_G2:
                 case R_AARCH64_MOVW_UABS_G2_NC:
-                    *(int32 *)P = (insn & 0xFFE0001F)
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFE0001F)
                                   | ((int32)(((X >> 32) & 0xFFFF) << 5));
                     break;
                 case R_AARCH64_MOVW_UABS_G3:
-                    *(int32 *)P = (insn & 0xFFE0001F)
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFE0001F)
                                   | ((int32)(((X >> 48) & 0xFFFF) << 5));
                     break;
                 default:
@@ -299,7 +310,7 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             /* write the imm21 back to instruction */
             immhi19 = (int32)(((X >> 12) >> 2) & 0x7FFFF);
             immlo2 = (int32)((X >> 12) & 0x3);
-            *(int32 *)P = (insn & 0x9F00001F) | (immlo2 << 29) | (immhi19 << 5);
+            *(int32 *)relocation_write_address(P) = (insn & 0x9F00001F) | (immlo2 << 29) | (immhi19 << 5);
 
             break;
         }
@@ -326,7 +337,7 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             /* No need to check overflow for this relocation type */
 
             /* write the imm12 back to instruction */
-            *(int32 *)P = (insn & 0xFFC003FF) | ((int32)((X & 0xFFF) << 10));
+            *(int32 *)relocation_write_address(P) = (insn & 0xFFC003FF) | ((int32)((X & 0xFFF) << 10));
             break;
         }
 
@@ -358,23 +369,22 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             /* write the imm12 back to instruction */
             switch (reloc_type) {
                 case R_AARCH64_LDST8_ABS_LO12_NC:
-                    *(int32 *)P =
-                        (insn & 0xFFC003FF) | ((int32)((X & 0xFFF) << 10));
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFC003FF) | ((int32)((X & 0xFFF) << 10));
                     break;
                 case R_AARCH64_LDST16_ABS_LO12_NC:
-                    *(int32 *)P = (insn & 0xFFC003FF)
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFC003FF)
                                   | ((int32)(((X & 0xFFF) >> 1) << 10));
                     break;
                 case R_AARCH64_LDST32_ABS_LO12_NC:
-                    *(int32 *)P = (insn & 0xFFC003FF)
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFC003FF)
                                   | ((int32)(((X & 0xFFF) >> 2) << 10));
                     break;
                 case R_AARCH64_LDST64_ABS_LO12_NC:
-                    *(int32 *)P = (insn & 0xFFC003FF)
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFC003FF)
                                   | ((int32)(((X & 0xFFF) >> 3) << 10));
                     break;
                 case R_AARCH64_LDST128_ABS_LO12_NC:
-                    *(int32 *)P = (insn & 0xFFC003FF)
+                    *(int32 *)relocation_write_address(P) = (insn & 0xFFC003FF)
                                   | ((int32)(((X & 0xFFF) >> 4) << 10));
                     break;
                 default:

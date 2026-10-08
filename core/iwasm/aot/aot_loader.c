@@ -2643,7 +2643,8 @@ fail:
     return false;
 }
 
-#if !defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF)
+#if !defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF) \
+    && !defined(BH_PLATFORM_LIBNX)
 static bool
 try_merge_data_and_text(const uint8 **buf, const uint8 **buf_end,
                         AOTModule *module, char *error_buf,
@@ -2726,7 +2727,8 @@ try_merge_data_and_text(const uint8 **buf, const uint8 **buf_end,
 
     return true;
 }
-#endif /* ! defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF) */
+#endif /* !defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF) \
+          && !defined(BH_PLATFORM_LIBNX) */
 
 static bool
 load_text_section(const uint8 *buf, const uint8 *buf_end, AOTModule *module,
@@ -4026,17 +4028,19 @@ load_from_sections(AOTModule *module, AOTSection *sections,
                     return false;
                 break;
             case AOT_SECTION_TYPE_TEXT:
-#if !defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF)
+#if !defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF) \
+    && !defined(BH_PLATFORM_LIBNX)
                 /* try to merge .data and .text, with exceptions:
                  * 1. XIP mode
                  * 2. pre-mmapped module load from aot_load_from_sections()
-                 * 3. nuttx & esp-idf: have separate region for MMAP_PROT_EXEC
+                 * 3. nuttx, esp-idf & libnx: separate executable mappings
                  */
                 if (!module->is_indirect_mode && is_load_from_file_buf)
                     if (!try_merge_data_and_text(&buf, &buf_end, module,
                                                  error_buf, error_buf_size))
                         LOG_WARNING("merge .data and .text sections failed");
-#endif /* ! defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF) */
+#endif /* !defined(BH_PLATFORM_NUTTX) && !defined(BH_PLATFORM_ESP_IDF) \
+          && !defined(BH_PLATFORM_LIBNX) */
                 if (!load_text_section(buf, buf_end, module, error_buf,
                                        error_buf_size))
                     return false;
@@ -4382,8 +4386,13 @@ create_sections(AOTModule *module, const uint8 *buf, uint32 size,
                     destroy_aot_text = true;
 
                     if ((uint32)total_size > section->section_body_size) {
+#if WASM_MEM_DUAL_BUS_MIRROR != 0
+                        memset(mirrored_text + (uint32)section_size, 0,
+                               (uint32)total_size - section_size);
+#else
                         memset(aot_text + (uint32)section_size, 0,
                                (uint32)total_size - section_size);
+#endif
                         section->section_body_size = (uint32)total_size;
                     }
                 }
